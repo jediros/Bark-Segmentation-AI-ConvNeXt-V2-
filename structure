@@ -1,0 +1,13 @@
+wood_project/
+├── data/
+│   ├── images/ (train, valid, test)
+│   └── masks/  (train, valid, test)
+├── src/
+│   ├── data_loader.py
+│   ├── losses.py
+│   ├── model.py
+│   ├── train.py
+│   ├── main.py
+│   └── predict.py
+├── Dockerfile
+└── requirements.txt
