@@ -22,7 +22,7 @@ This project addresses the challenge of building a high-performance segmentation
 ## 🏗️ Architecture
 
 ```
-Input Image (640×640×3)
+Input Image (512×512×3)
         │
         ▼
 ┌──────────────────────┐
@@ -38,6 +38,8 @@ Input Image (640×640×3)
            │
            ▼
     Binary mask (bark / no-bark)
+    
+Input resolution is configurable via `--img_size`. Must be divisible by 32. Recommended: 512 (fast) or 768 (quality).
 ```
 
 ### Why UNet++ and not standard UNet?
@@ -165,7 +167,7 @@ wood_project/
 git clone https://github.com/jediros/Bark-Segmentation-AI-ConvNeXt-V2-.git
 cd Bark-Segmentation-AI-ConvNeXt-V2-
 
-# 2. Place your dataset at ./data (or update the mount in devcontainer.json)
+# 2. Update the data mount in .devcontainer/devcontainer.json (see note below)
 
 # 3. Open in VS Code → "Reopen in Container"
 
@@ -173,7 +175,7 @@ cd Bark-Segmentation-AI-ConvNeXt-V2-
 mlflow server --host 0.0.0.0 --port 5015 &
 
 # 5. Run training
-python src/main.py --data_path ./data --epochs 100 --lr 2e-4 --img_size 640
+python src/main.py --data_path /workspaces/Bark_AI/data --epochs 100 --lr 2e-4 --img_size 640
 ```
 
 ### Option 2 — Docker
@@ -189,7 +191,7 @@ docker run bark-seg python src/main.py --data_path ./data
 |---|---|---|
 | `--data_path` | `./data` | Path to dataset root |
 | `--batch_size` | `1` | Batch size (keep 1 for CPU) |
-| `--img_size` | `640` | Input resolution (must match at inference) |
+| `--img_size` | `512` | Input resolution (must match at inference) |
 | `--lr` | `2e-4` | Initial learning rate |
 | `--epochs` | `100` | Max training epochs (early stopping applies) |
 | `--num_classes` | `1` | Output classes (1 = binary segmentation) |
@@ -203,6 +205,36 @@ python src/predict.py \
   --img_size 640 \
   --output_dir results/
 ```
+
+---
+
+## ⚠️ Dataset & Data Mount
+
+This project was trained on a **proprietary industrial dataset** of wood trunk images collected in a real forestry environment and is not publicly available.
+
+To run this project with your own data, update the mount path in `.devcontainer/devcontainer.json`:
+
+```jsonc
+"mounts": [
+    "source=/your/local/data/path,target=/workspaces/Bark_AI/data,type=bind,consistency=cached"
+]
+```
+
+Your data folder must follow this structure:
+
+```
+data/
+├── images/
+│   ├── train/
+│   ├── valid/
+│   └── test/
+└── masks/
+    ├── train/
+    ├── valid/
+    └── test/
+```
+
+Masks must be binary PNG files (0 = background, 255 = bark) with the same filename as their corresponding image.
 
 ---
 

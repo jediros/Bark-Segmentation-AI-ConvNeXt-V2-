@@ -2,76 +2,76 @@ import torch
 import cv2
 import numpy as np
 import os
-import argparse
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 import matplotlib.pyplot as plt
 from train import WoodSegmentationModule
 
-def predict_wood(ckpt_path, image_path, img_size=640, output_dir="results"):
-    # 1. Device setup
+def predict_wood(ckpt_path, image_path, output_dir="results"):
+    # 1. Configuración del dispositivo
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     os.makedirs(output_dir, exist_ok=True)
 
-    # 2. Load model from checkpoint
+    # 2. Cargar el modelo desde el checkpoint
+    # Asegúrate de que num_classes=1 coincida con tu entrenamiento
     model = WoodSegmentationModule.load_from_checkpoint(ckpt_path, num_classes=1)
     model.to(device).eval()
 
-    # 3. Read and prepare image
+    # 3. Leer y preparar la imagen
     image = cv2.imread(image_path)
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     h, w = image.shape[:2]
 
-    # Validation transform — must match training img_size
+    # Transformación idéntica a la de validación
     transform = A.Compose([
-        A.Resize(img_size, img_size),           # consistent with training
+        A.Resize(512, 512),
         A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(),
     ])
     
     input_tensor = transform(image=image_rgb)['image'].unsqueeze(0).to(device)
 
-    # 4. Inference
+    # 4. Predicción
     with torch.no_grad():
         logits = model(input_tensor)
+        # Como es binario, usamos Sigmoide + Umbral 0.5
         probs = torch.sigmoid(logits).squeeze()
         mask = (probs > 0.5).cpu().numpy().astype(np.uint8)
 
-    # 5. Resize mask back to original image dimensions
+    # 5. Redimensionar máscara al tamaño original de la foto
     mask_resized = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
 
-    # 6. Create overlay — bark regions highlighted in green
+    # 6. Crear una imagen combinada (Overlay) para ver el resultado
     overlay = image_rgb.copy()
-    overlay[mask_resized == 1] = [0, 255, 0]
+    overlay[mask_resized == 1] = [0, 255, 0] # Pintamos la corteza de VERDE brillante
+    
     combined = cv2.addWeighted(image_rgb, 0.7, overlay, 0.3, 0)
 
-    # 7. Save and display results
+    # 7. Guardar y Mostrar
     img_name = os.path.basename(image_path)
     plt.figure(figsize=(15, 5))
     
     plt.subplot(1, 3, 1)
-    plt.imshow(image_rgb); plt.title("Original Image"); plt.axis("off")
+    plt.imshow(image_rgb); plt.title("Imagen Original"); plt.axis("off")
     
     plt.subplot(1, 3, 2)
-    plt.imshow(mask_resized, cmap="gray"); plt.title("Predicted Mask"); plt.axis("off")
+    plt.imshow(mask_resized, cmap="gray"); plt.title("Máscara Predicha"); plt.axis("off")
     
     plt.subplot(1, 3, 3)
-    plt.imshow(combined); plt.title("Overlay Result"); plt.axis("off")
+    plt.imshow(combined); plt.title("Resultado (Overlay)"); plt.axis("off")
     
     save_path = os.path.join(output_dir, f"pred_{img_name}")
     plt.savefig(save_path, bbox_inches='tight')
-    print(f"✅ Prediction saved to: {save_path}")
+    print(f"✅ Predicción guardada en: {save_path}")
     plt.show()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Bark Segmentation Inference — UNet++ ConvNeXt V2")
-    parser.add_argument("--ckpt",       type=str, required=True,    help="Path to .ckpt checkpoint file")
-    parser.add_argument("--image",      type=str, required=True,    help="Path to input image")
-    parser.add_argument("--img_size",   type=int, default=640,      help="Must match training img_size")
-    parser.add_argument("--output_dir", type=str, default="results", help="Directory to save predictions")
-    args = parser.parse_args()
-
-    if os.path.exists(args.ckpt):
-        predict_wood(args.ckpt, args.image, img_size=args.img_size, output_dir=args.output_dir)
+    # Cambia esto por la ruta real de tu archivo .ckpt que generó el entrenamiento
+    # Suele estar en lightning_logs/version_X/checkpoints/best_model.ckpt
+    CKPT = "/workspaces/Bark_AI/3/34163f26205a4612a79bc2dd7447c725/checkpoints/best_v2.ckpt"
+    IMG = "/workspaces/Bark_AI/data/images/test/bark_export_5B_800N.png" 
+    
+    if os.path.exists(CKPT):
+        predict_wood(CKPT, IMG)
     else:
-        print(f"❌ Checkpoint not found: {args.ckpt}")
+        print("❌ No se encontró el archivo .ckpt. Revisa la ruta.")
