@@ -32,8 +32,8 @@ class WoodDataset(Dataset):
 
         # --- RE-MAPEO DE ETIQUETAS (BINARIO) ---
         new_mask = np.zeros_like(mask, dtype=np.uint8)
-        new_mask[mask == 0] = 1    # 0 en tu archivo -> Clase 1 (Corteza)
-        new_mask[mask == 255] = 0  # 255 en tu archivo -> Clase 0 (Nada)
+        new_mask[mask == 255] = 1    # 0 en tu archivo -> Clase 1 (Corteza)
+        new_mask[mask == 0] = 0  # 255 en tu archivo -> Clase 0 (Nada)
         # ---------------------------------------
 
         if self.transform:

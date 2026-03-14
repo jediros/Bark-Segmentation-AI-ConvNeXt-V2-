@@ -1,111 +1,126 @@
-# 🌲 Bark Segmentation AI — ConvNeXt V2 + UNet++
+# 🌲 Bark Segmentation AI — UNet++ ConvNeXt V2
 
-> Semantic segmentation of bark regions in wood trunk images using a custom UNet++ architecture with ConvNeXt V2 backbone. Built as a production-ready ML pipeline with full experiment tracking, modular design, and CPU-optimized training.
+> Binary semantic segmentation of bark regions in wood trunk images. Built as a production-ready ML pipeline featuring a custom triple-loss function, full experiment tracking with MLflow, modular architecture, and CPU-optimized training — all reproducible in one command via DevContainer.
 
 ![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
 ![PyTorch](https://img.shields.io/badge/PyTorch-2.x-orange?logo=pytorch)
 ![Lightning](https://img.shields.io/badge/PyTorch_Lightning-2.x-purple)
 ![MLflow](https://img.shields.io/badge/MLflow-tracked-green?logo=mlflow)
-![Docker](https://img.shields.io/badge/Docker-devcontainer-blue?logo=docker)
+![SMP](https://img.shields.io/badge/segmentation--models--pytorch-used-red)
+![Docker](https://img.shields.io/badge/DevContainer-ready-blue?logo=docker)
 
 ---
 
 ## 🎯 Problem Statement
 
-Detecting and segmenting bark regions in wood trunk images is a critical task in the **forestry and wood processing industry**. Accurate bark segmentation enables automated quality control, volume estimation, and material classification — tasks traditionally performed manually by skilled operators.
+Detecting and segmenting bark regions in wood trunk images is a critical task in the **forestry and wood processing industry**. Accurate bark segmentation enables automated quality control, volume estimation, and raw material classification — tasks traditionally performed manually by skilled operators.
 
-This project tackles the challenge of **training a high-performance segmentation model with a limited dataset** (<50 images), a constraint common in industrial computer vision applications.
+This project addresses the challenge of building a high-performance segmentation model under **real industrial constraints: a small labeled dataset (<50 images)**. Rather than simplifying the problem, this constraint drives deliberate technical decisions around transfer learning, aggressive augmentation, and robust loss design.
 
 ---
 
 ## 🏗️ Architecture
 
-The model combines two powerful components:
-
 ```
-Input Image (640×640)
+Input Image (640×640×3)
         │
         ▼
-┌───────────────────┐
-│  ConvNeXt V2      │  ← Backbone preentrenado en ImageNet-22K
-│  (Feature Extractor)│    Extrae features semánticas ricas
-└────────┬──────────┘
-         │  Skip connections
-         ▼
-┌───────────────────┐
-│    UNet++         │  ← Decoder con dense skip connections
-│  (Segmentation)   │    Mayor capacidad que UNet clásico
-└────────┬──────────┘
-         │
-         ▼
-  Máscara binaria (bark / no-bark)
+┌──────────────────────┐
+│   ConvNeXt V2 Tiny   │  Pretrained encoder (ImageNet)
+│   (4-stage backbone) │  Extracts rich semantic features
+└──────────┬───────────┘
+           │  Dense nested skip connections
+           ▼
+┌──────────────────────┐
+│      UNet++          │  Decoder with nested dense blocks
+│  (Segmentation head) │  Multi-scale feature fusion
+└──────────┬───────────┘
+           │
+           ▼
+    Binary mask (bark / no-bark)
 ```
 
-### ¿Por qué UNet++ y no UNet?
+### Why UNet++ and not standard UNet?
 
-UNet++ introduce **dense nested skip connections** entre el encoder y decoder. Esto permite que el modelo aprenda representaciones a múltiples escalas simultáneamente — especialmente relevante para texturas complejas como la corteza de madera, donde la información de bordes finos y regiones amplias debe integrarse.
+UNet++ introduces **dense nested skip connections** between encoder and decoder stages. This architecture allows the model to learn feature representations at multiple semantic scales simultaneously — particularly useful for bark textures, where both fine edge details and broad region context are equally important for accurate segmentation.
 
-### ¿Por qué ConvNeXt V2 como backbone?
+### Why ConvNeXt V2 as the backbone?
 
-ConvNeXt V2 (Meta AI, 2023) es un backbone convolucional moderno que iguala o supera a los Vision Transformers en tareas de dense prediction, con menor costo computacional. Al estar preentrenado en ImageNet-22K, aporta representaciones visuales ricas que permiten **hacer transfer learning efectivo con pocos datos**.
+ConvNeXt V2 (Meta AI, 2023) is a modern convolutional backbone that matches or outperforms Vision Transformers on dense prediction tasks at lower computational cost. Pretrained on ImageNet, it provides rich visual representations that enable **effective transfer learning with very few labeled samples** — a critical advantage in this industrial setting.
 
 ---
 
 ## ⚙️ Training Pipeline
 
-### Loss Function — CombinedLoss
+### Loss Function — Triple Combined Loss
 
-Se utiliza una función de pérdida combinada que integra:
+One of the key technical decisions in this project is the loss function design. Instead of a standard BCE + Dice combination, this pipeline uses a **three-component loss** specifically designed for imbalanced binary segmentation:
 
-- **Binary Cross-Entropy (BCE)** — Penaliza pixel a pixel
-- **Dice Loss** — Optimiza directamente el solapamiento entre predicción y ground truth
+| Loss Component | Weight | Purpose |
+|---|---|---|
+| **Dice Loss** | 0.4 | Directly optimizes mask overlap (IoU proxy) |
+| **Focal Loss** | 0.3 | Down-weights easy background pixels, focuses on hard bark regions |
+| **Lovász Loss** | 0.3 | Differentiable surrogate for IoU — optimizes the actual evaluation metric |
 
-Esta combinación es estándar en segmentación médica e industrial, donde el desbalance de clases es frecuente (más fondo que objeto de interés).
+The Lovász Loss is particularly notable: it provides a differentiable approximation of the IoU score, effectively allowing the model to optimize directly for the evaluation metric rather than a proxy. This combination is common in competitive medical and industrial segmentation pipelines.
 
 ### Optimizer & Scheduler
 
-| Componente | Configuración | Justificación |
+| Component | Configuration | Rationale |
 |---|---|---|
-| Optimizer | AdamW, lr=2e-4 | Mejor generalización que Adam clásico |
-| Weight decay | 1e-4 | Regularización para dataset pequeño |
-| Scheduler | CosineAnnealingLR | Convergencia suave, evita mínimos locales |
-| Early Stopping | patience=15, monitor=val_iou | Detiene el entrenamiento cuando el IoU no mejora |
+| Optimizer | AdamW, lr=2e-4 | Better generalization than Adam via decoupled weight decay |
+| Weight decay | 1e-4 | Essential regularization with small datasets |
+| Scheduler | CosineAnnealingLR (T_max=50) | Smooth convergence, avoids sharp local minima |
+| Early Stopping | patience=15, monitor=val_iou | Stops on the actual segmentation metric, not loss |
 
 ### CPU Optimization
 
-El pipeline está optimizado para entrenamiento en CPU:
+The entire pipeline is designed and validated for CPU-only training:
 
 ```python
-torch.set_num_threads(4)   # Evita saturación de recursos
-batch_size = 1             # Minimiza uso de RAM
-num_workers = 0            # Estabilidad en CPU
+torch.set_num_threads(4)    # Prevents system overload
+batch_size = 1              # Minimizes RAM usage
+num_workers = 0             # Avoids multiprocessing instability on CPU
 ```
+
+### Data Augmentation
+
+Training augmentations are applied via **Albumentations** to artificially expand the dataset and improve generalization:
+
+- Horizontal & vertical flips
+- Random 90° rotations
+- Shift, scale & rotate (shift=0.1, scale=0.1, rotate=30°)
+- Random brightness & contrast
+- ImageNet normalization
+
+Validation uses resize + normalization only (no augmentation) to ensure unbiased evaluation.
 
 ---
 
 ## 📊 Experiment Tracking
 
-Todos los experimentos se registran automáticamente en **MLflow**, incluyendo:
+Every training run is automatically logged to **MLflow**, including:
 
-- Hiperparámetros (lr, batch_size, img_size, epochs)
-- Métricas por época (train_loss, val_loss, val_iou, val_dice, lr)
-- Artefactos visuales: comparación imagen original / máscara GT / predicción
-- Checkpoints del mejor modelo (monitoreado por val_iou)
+- All hyperparameters (`lr`, `batch_size`, `img_size`, `epochs`)
+- Per-epoch metrics: `train_loss`, `val_loss`, `val_iou`, `val_dice`, `lr`
+- Visual artifacts: original image / ground truth mask / predicted mask comparison (logged on every validation improvement)
+- Best model checkpoint (monitored by `val_iou`)
 
 ```bash
-# Lanzar MLflow UI
-mlflow ui --port 5015
+# Start MLflow UI
+mlflow server --host 0.0.0.0 --port 5015
+# Open http://localhost:5015
 ```
 
-### Experimentos realizados
+### Experiments
 
-| Run | LR | img_size | Augmentation | val_iou | val_dice |
-|---|---|---|---|---|---|
-| baseline | 2e-4 | 640 | Standard | — | — |
-| low_lr | 5e-5 | 640 | Standard | — | — |
-| small_img | 2e-4 | 512 | Standard | — | — |
+| Run | LR | img_size | val_iou | val_dice |
+|---|---|---|---|---|
+| `convnextv2_lr0.0002_img640_bs1` | 2e-4 | 640 | — | — |
+| `convnextv2_lr5e-05_img640_bs1` | 5e-5 | 640 | — | — |
+| `convnextv2_lr0.0002_img512_bs1` | 2e-4 | 512 | — | — |
 
-> Los resultados se actualizan tras completar los runs de entrenamiento.
+> Results will be updated after completing training runs.
 
 ---
 
@@ -113,6 +128,9 @@ mlflow ui --port 5015
 
 ```
 wood_project/
+├── .devcontainer/
+│   ├── devcontainer.json     # DevContainer config (portable mount)
+│   └── Dockerfile            # CPU-optimized Python 3.10 environment
 ├── data/
 │   ├── images/
 │   │   ├── train/
@@ -123,14 +141,14 @@ wood_project/
 │       ├── valid/
 │       └── test/
 ├── src/
-│   ├── data_loader.py    # Dataset + augmentation pipeline
-│   ├── losses.py         # CombinedLoss (BCE + Dice)
-│   ├── model.py          # UNet++ + ConvNeXt V2
-│   ├── train.py          # LightningModule (training loop)
-│   ├── main.py           # Entry point + MLflow + argparse
-│   └── predict.py        # Inference pipeline
-├── predictions/          # Visualizaciones por época (auto-generadas)
-├── Dockerfile
+│   ├── data_loader.py        # WoodDataset + Albumentations transforms
+│   ├── losses.py             # CombinedLoss (Dice + Focal + Lovász)
+│   ├── model.py              # UNet++ + ConvNeXt V2 via SMP
+│   ├── train.py              # LightningModule (training loop + metrics)
+│   ├── main.py               # Entry point + MLflow + argparse
+│   └── predict.py            # Inference pipeline with overlay visualization
+├── predictions/              # Per-epoch visual comparisons (auto-generated)
+├── results/                  # Inference outputs
 └── requirements.txt
 ```
 
@@ -138,76 +156,94 @@ wood_project/
 
 ## 🚀 Quickstart
 
-### Opción 1 — DevContainer (recomendado)
+### Option 1 — DevContainer (recommended)
+
+> Requires: VS Code + Docker + Dev Containers extension
 
 ```bash
-# 1. Clonar el repositorio
+# 1. Clone the repository
 git clone https://github.com/jediros/Bark-Segmentation-AI-ConvNeXt-V2-.git
 cd Bark-Segmentation-AI-ConvNeXt-V2-
 
-# 2. Abrir en VS Code con DevContainer
-# → "Reopen in Container" desde VS Code
+# 2. Place your dataset at ./data (or update the mount in devcontainer.json)
 
-# 3. Lanzar MLflow
+# 3. Open in VS Code → "Reopen in Container"
+
+# 4. Start MLflow server
 mlflow server --host 0.0.0.0 --port 5015 &
 
-# 4. Entrenar
-python src/main.py --data_path ./data --epochs 100 --lr 2e-4
+# 5. Run training
+python src/main.py --data_path ./data --epochs 100 --lr 2e-4 --img_size 640
 ```
 
-### Opción 2 — Docker
+### Option 2 — Docker
 
 ```bash
 docker build -t bark-seg .
 docker run bark-seg python src/main.py --data_path ./data
 ```
 
-### Argumentos disponibles
+### Training Arguments
 
-| Argumento | Default | Descripción |
+| Argument | Default | Description |
 |---|---|---|
-| `--data_path` | `./data` | Ruta al dataset |
-| `--batch_size` | `1` | Batch size (CPU: mantener en 1) |
-| `--img_size` | `640` | Resolución de entrada |
-| `--lr` | `2e-4` | Learning rate inicial |
-| `--epochs` | `100` | Máximo de épocas |
-| `--num_classes` | `1` | Clases (1 = segmentación binaria) |
+| `--data_path` | `./data` | Path to dataset root |
+| `--batch_size` | `1` | Batch size (keep 1 for CPU) |
+| `--img_size` | `640` | Input resolution (must match at inference) |
+| `--lr` | `2e-4` | Initial learning rate |
+| `--epochs` | `100` | Max training epochs (early stopping applies) |
+| `--num_classes` | `1` | Output classes (1 = binary segmentation) |
+
+### Inference
+
+```bash
+python src/predict.py \
+  --ckpt path/to/best_v2.ckpt \
+  --image path/to/image.png \
+  --img_size 640 \
+  --output_dir results/
+```
 
 ---
 
-## 🔬 Key Technical Decisions
+## 🔬 Key Design Decisions
 
-**¿Por qué PyTorch Lightning?**
-Elimina el boilerplate del training loop manteniendo control total. Facilita la integración con MLflow, callbacks y reproducibilidad.
+**Why PyTorch Lightning?**
+Eliminates training loop boilerplate while preserving full control. Seamless integration with MLflow callbacks, checkpointing, and early stopping — without sacrificing flexibility.
 
-**¿Por qué segmentación binaria y no multiclase?**
-El problema es inherentemente binario: corteza / no-corteza. Un enfoque binario es más robusto con datasets pequeños que forzar multiclase artificialmente.
+**Why binary segmentation?**
+The problem is inherently binary: bark vs. no-bark. A binary approach is more robust with small datasets than forcing artificial multiclass splits, and maps directly to the downstream industrial use case.
 
-**¿Por qué guardar visualizaciones solo cuando mejora val_loss?**
-Reduce I/O y mantiene solo las predicciones relevantes. Permite ver visualmente la progresión del modelo a lo largo del entrenamiento de forma eficiente.
+**Why save visualizations only on val_loss improvement?**
+Reduces I/O overhead and keeps only meaningful snapshots. The result is a visual history of the model's progression at each quality milestone — useful for debugging and for demonstrating learning dynamics.
 
-**¿Por qué EarlyStopping sobre val_iou y no val_loss?**
-IoU (Jaccard Index) mide directamente la calidad de la segmentación. Optimizar sobre la métrica de negocio real, no sobre el proxy de la loss, da mejores modelos en producción.
+**Why monitor EarlyStopping on val_iou instead of val_loss?**
+IoU (Jaccard Index) is the real evaluation metric for segmentation quality. Optimizing the stopping criterion on the business metric — not a proxy loss — produces models that are actually better at the task.
+
+**Why Lovász Loss?**
+Unlike Dice or BCE, the Lovász-Softmax loss provides a **differentiable surrogate for the IoU score** itself. This means the model is trained to directly optimize what it will be evaluated on, closing the gap between training objective and evaluation metric.
 
 ---
 
 ## 🧰 Tech Stack
 
-| Categoría | Tecnología |
+| Category | Technology |
 |---|---|
-| Framework DL | PyTorch + PyTorch Lightning |
+| Deep Learning | PyTorch + PyTorch Lightning |
+| Segmentation | segmentation-models-pytorch (SMP) |
 | Experiment Tracking | MLflow |
-| Métricas | TorchMetrics |
-| Containerización | Docker + DevContainers |
-| Visualización | Matplotlib |
+| Augmentation | Albumentations |
+| Metrics | TorchMetrics |
+| Containerization | Docker + VS Code DevContainers |
+| Visualization | Matplotlib + OpenCV |
 
 ---
 
 ## 👤 Author
 
-**jediros** — MLOps Engineer especializado en Computer Vision  
+**jediros** — MLOps Engineer · Computer Vision  
 [GitHub](https://github.com/jediros)
 
 ---
 
-> *Este proyecto demuestra cómo construir un pipeline de segmentación semántica production-ready en un dominio industrial con datos limitados, priorizando reproducibilidad, trazabilidad experimental y decisiones técnicas justificadas.*
+> *This project demonstrates how to build a production-ready semantic segmentation pipeline under real industrial constraints — limited labeled data, CPU-only hardware — while maintaining rigorous experiment tracking, reproducibility, and technically justified design decisions throughout.*

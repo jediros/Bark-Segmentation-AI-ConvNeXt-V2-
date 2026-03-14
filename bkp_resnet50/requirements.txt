@@ -1,9 +1,0 @@
-pytorch-lightning
-segmentation-models-pytorch
-timm
-albumentations
-mlflow
-opencv-python-headless
-matplotlib
-torchmetrics
-scikit-learn

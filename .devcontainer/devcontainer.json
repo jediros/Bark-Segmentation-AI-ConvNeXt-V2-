@@ -8,11 +8,12 @@
         "--shm-size", "8gb",
         "--network", "host"
     ],
-    // --- ESTA ES LA PARTE CLAVE ---
+    // Mount your local data folder into the container.
+    // Place your dataset at ./data relative to the project root,
+    // or update the source path to match your local data location.
     "mounts": [
-        "source=/home/jedi-ai/AI/data/bark_images/all_images_tag,target=/workspaces/Bark_AI/data,type=bind,consistency=cached"
+        "source=${localWorkspaceFolder}/data,target=/workspaces/Bark_AI/data,type=bind,consistency=cached"
     ],
-    // ------------------------------
     "customizations": {
         "vscode": {
             "settings": {
